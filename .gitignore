@@ -1,0 +1,16 @@
+﻿# Ignore editor folders
+.vscode/
+*.log
+
+# Ignore binaries / compiled files
+*.exe
+*.o
+*.obj
+*.out
+
+# Ignore build/output folders
+build/
+output/
+
+# Ignore private credentials
+credentials.txt
