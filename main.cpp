@@ -1,4 +1,4 @@
-/* main.c  - SRMS with multi-word names and improved table formatting */
+/* main.c  - SRMS: multi-word names, formatted table, unique roll & name checks */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,9 +30,11 @@ void readLine(const char *prompt, char *out, size_t outSize);
 int  readInt(const char *prompt);
 float readFloat(const char *prompt);
 void trimNewline(char *s);
-void sanitizePipe(char *s); /* remove or replace '|' in name */
+void sanitizePipe(char *s);
+int  rollExists(int roll);
+int  nameExists(const char *name);
+int  nameExistsExceptRoll(const char *name, int roll);
 
-/* ---------- main ---------- */
 int main(void) {
     if (loginSystem()) {
         mainMenu();
@@ -114,12 +116,24 @@ void guestMenu(void) {
     printf("\n[GUEST MENU] (not implemented yet)\n");
 }
 
-/* ---------- add student (multi-word name allowed) ---------- */
+/* ---------- add student (multi-word name allowed, unique roll & name) ---------- */
 void addStudent(void) {
     int roll = readInt("\nEnter Roll: ");
+
+    if (rollExists(roll)) {
+        printf("A student with roll %d already exists. Choose another roll.\n", roll);
+        return;
+    }
+
     char namebuf[NAME_MAX];
     readLine("Enter Name (can include spaces): ", namebuf, sizeof(namebuf));
     sanitizePipe(namebuf); /* protect against '|' in names */
+
+    if (nameExists(namebuf)) {
+        printf("A student with the name \"%s\" already exists. Choose a different name.\n", namebuf);
+        return;
+    }
+
     float marks = readFloat("Enter Marks: ");
 
     FILE *fp = fopen(STUDENT_FILE, "a");
@@ -142,14 +156,20 @@ void displayStudents(void) {
         return;
     }
 
-    printf("\n%-6s %-25s %6s\n", "Roll", "Name", "Marks");
-    printf("----------------------------------------------------\n");
+    /* header with aligned columns */
+    printf("\n%-6s %-30s %8s\n", "Roll", "Name", "Marks");
+    printf("---------------------------------------------------------------\n");
 
     while (fgets(line, sizeof(line), fp)) {
         trimNewline(line);
         if (line[0] == '\0') continue;
+
+        char copy[LINEBUF_SIZE];
+        strncpy(copy, line, sizeof(copy)-1);
+        copy[sizeof(copy)-1] = '\0';
+
         /* parse roll|name|marks */
-        char *p = strtok(line, "|");
+        char *p = strtok(copy, "|");
         if (!p) continue;
         int roll = atoi(p);
 
@@ -160,7 +180,7 @@ void displayStudents(void) {
         if (!marksStr) continue;
         float marks = (float) atof(marksStr);
 
-        printf("%-6d %-25s %6.2f\n", roll, name, marks);
+        printf("%-6d %-30s %8.2f\n", roll, name, marks);
     }
 
     fclose(fp);
@@ -180,7 +200,9 @@ void searchStudent(void) {
         while (fgets(line, sizeof(line), fp)) {
             trimNewline(line);
             if (line[0]=='\0') continue;
-            char *p = strtok(line, "|");
+            char copy[LINEBUF_SIZE];
+            strncpy(copy, line, sizeof(copy)-1); copy[sizeof(copy)-1]=0;
+            char *p = strtok(copy, "|");
             if (!p) continue;
             int roll = atoi(p);
             char *name = strtok(NULL, "|");
@@ -206,8 +228,8 @@ void searchStudent(void) {
         int found = 0;
         if (!fp) { printf("No student records.\n"); return; }
 
-        printf("\nMatches:\n%-6s %-25s %6s\n", "Roll", "Name", "Marks");
-        printf("----------------------------------------------------\n");
+        printf("\nMatches:\n%-6s %-30s %8s\n", "Roll", "Name", "Marks");
+        printf("---------------------------------------------------------------\n");
 
         while (fgets(line, sizeof(line), fp)) {
             trimNewline(line);
@@ -229,7 +251,7 @@ void searchStudent(void) {
 
             if (strstr(lowerName, query) != NULL) {
                 float marks = (float) atof(marksStr);
-                printf("%-6d %-25s %6.2f\n", roll, name, marks);
+                printf("%-6d %-30s %8.2f\n", roll, name, marks);
                 found = 1;
             }
         }
@@ -240,7 +262,7 @@ void searchStudent(void) {
     }
 }
 
-/* ---------- update student ---------- */
+/* ---------- update student (prevents name duplicates) ---------- */
 void updateStudent(void) {
     int key = readInt("Enter Roll to update: ");
     FILE *fp = fopen(STUDENT_FILE, "r");
@@ -268,9 +290,15 @@ void updateStudent(void) {
             char newName[NAME_MAX];
             readLine("Enter new Name (can include spaces): ", newName, sizeof(newName));
             sanitizePipe(newName);
-            float newMarks = readFloat("Enter new Marks: ");
-            fprintf(temp, "%d|%s|%.2f\n", roll, newName, newMarks);
-            found = 1;
+            /* allow keeping same name; otherwise block if duplicate */
+            if ( (strcasecmp(newName, name) != 0) && nameExistsExceptRoll(newName, roll) ) {
+                printf("A student with the name \"%s\" already exists. Update cancelled.\n", newName);
+                fprintf(temp, "%s\n", line); /* keep original */
+            } else {
+                float newMarks = readFloat("Enter new Marks: ");
+                fprintf(temp, "%d|%s|%.2f\n", roll, newName, newMarks);
+                found = 1;
+            }
         } else {
             fprintf(temp, "%s\n", line);
         }
@@ -282,7 +310,7 @@ void updateStudent(void) {
     remove(STUDENT_FILE);
     rename("temp.txt", STUDENT_FILE);
 
-    if (found) printf("Record updated.\n"); else printf("Record not found.\n");
+    if (found) printf("Record updated.\n"); else printf("Record not found or update cancelled.\n");
 }
 
 /* ---------- delete student ---------- */
@@ -334,6 +362,7 @@ void trimNewline(char *s) {
     }
 }
 
+/* read integer with validation */
 int readInt(const char *prompt) {
     char buf[LINEBUF_SIZE];
     int val;
@@ -344,6 +373,7 @@ int readInt(const char *prompt) {
     }
 }
 
+/* read float with validation */
 float readFloat(const char *prompt) {
     char buf[LINEBUF_SIZE];
     float val;
@@ -358,4 +388,109 @@ float readFloat(const char *prompt) {
 void sanitizePipe(char *s) {
     for (; *s; ++s) if (*s == '|') *s = ' ';
 }
-//This Code will be automatically puishes into git repository SRMS-Project.
+
+/* check if roll already exists in STUDENT_FILE */
+int rollExists(int roll) {
+    FILE *fp = fopen(STUDENT_FILE, "r");
+    char line[LINEBUF_SIZE];
+    if (!fp) return 0; /* file doesn't exist -> not found */
+
+    while (fgets(line, sizeof(line), fp)) {
+        trimNewline(line);
+        if (line[0] == '\0') continue;
+        char copy[LINEBUF_SIZE];
+        strncpy(copy, line, sizeof(copy)-1); copy[sizeof(copy)-1]=0;
+        char *p = strtok(copy, "|");
+        if (!p) continue;
+        int r = atoi(p);
+        if (r == roll) {
+            fclose(fp);
+            return 1;
+        }
+    }
+    fclose(fp);
+    return 0;
+}
+
+/* check if name already exists in STUDENT_FILE (case-insensitive) */
+int nameExists(const char *name) {
+    FILE *fp = fopen(STUDENT_FILE, "r");
+    char line[LINEBUF_SIZE];
+    if (!fp) return 0;
+
+    char loweredName[NAME_MAX];
+    strncpy(loweredName, name, sizeof(loweredName)-1);
+    loweredName[sizeof(loweredName)-1] = '\0';
+    for (char *p = loweredName; *p; ++p)
+        *p = (char) tolower((unsigned char)*p);
+
+    while (fgets(line, sizeof(line), fp)) {
+        trimNewline(line);
+        if (line[0] == '\0') continue;
+
+        char copy[LINEBUF_SIZE];
+        strncpy(copy, line, sizeof(copy)-1);
+        copy[sizeof(copy)-1] = '\0';
+
+        char *p = strtok(copy, "|");   /* roll */
+        char *n = strtok(NULL, "|");   /* name */
+        if (!n) continue;
+
+        char loweredExisting[NAME_MAX];
+        strncpy(loweredExisting, n, sizeof(loweredExisting)-1);
+        loweredExisting[sizeof(loweredExisting)-1] = '\0';
+        for (char *q = loweredExisting; *q; ++q)
+            *q = (char) tolower((unsigned char)*q);
+
+        if (strcmp(loweredName, loweredExisting) == 0) {
+            fclose(fp);
+            return 1;  /* duplicate name found */
+        }
+    }
+
+    fclose(fp);
+    return 0;
+}
+
+/* check if name exists for a different roll (used when updating) */
+int nameExistsExceptRoll(const char *name, int roll) {
+    FILE *fp = fopen(STUDENT_FILE, "r");
+    char line[LINEBUF_SIZE];
+    if (!fp) return 0;
+
+    char loweredName[NAME_MAX];
+    strncpy(loweredName, name, sizeof(loweredName)-1);
+    loweredName[sizeof(loweredName)-1] = '\0';
+    for (char *p = loweredName; *p; ++p)
+        *p = (char) tolower((unsigned char)*p);
+
+    while (fgets(line, sizeof(line), fp)) {
+        trimNewline(line);
+        if (line[0] == '\0') continue;
+
+        char copy[LINEBUF_SIZE];
+        strncpy(copy, line, sizeof(copy)-1);
+        copy[sizeof(copy)-1] = '\0';
+
+        char *p = strtok(copy, "|");   /* roll */
+        char *n = strtok(NULL, "|");   /* name */
+        if (!p || !n) continue;
+        int r = atoi(p);
+
+        if (r == roll) continue; /* ignore same roll */
+
+        char loweredExisting[NAME_MAX];
+        strncpy(loweredExisting, n, sizeof(loweredExisting)-1);
+        loweredExisting[sizeof(loweredExisting)-1] = '\0';
+        for (char *q = loweredExisting; *q; ++q)
+            *q = (char) tolower((unsigned char)*q);
+
+        if (strcmp(loweredName, loweredExisting) == 0) {
+            fclose(fp);
+            return 1;  /* duplicate name found on different roll */
+        }
+    }
+
+    fclose(fp);
+    return 0;
+}
