@@ -48,29 +48,44 @@ int main(void) {
 int loginSystem(void) {
     char username[50], password[50];
     char fileUser[50], filePass[50], fileRole[20];
+    int attempts = 3;
 
-    readLine("========= LOGIN SCREEN =========\nUsername: ", username, sizeof(username));
-    readLine("Password: ", password, sizeof(password));
+    while (attempts > 0) {
+        printf("========= LOGIN SCREEN =========\n");
+        printf("Attempts remaining: %d\n", attempts);
+        readLine("Username: ", username, sizeof(username));
+        readLine("Password: ", password, sizeof(password));
 
-    FILE *fp = fopen(CREDENTIALS_FILE, "r");
-    if (!fp) {
-        /* If credentials file missing, allow ADMIN fallback for testing */
-        strcpy(currentRole, "ADMIN");
-        strcpy(currentUser, "localadmin");
-        return 1;
-    }
-
-    while (fscanf(fp, "%49s %49s %19s", fileUser, filePass, fileRole) == 3) {
-        if (strcmp(username, fileUser) == 0 && strcmp(password, filePass) == 0) {
-            strncpy(currentRole, fileRole, sizeof(currentRole)-1);
-            currentRole[sizeof(currentRole)-1] = '\0';
-            strncpy(currentUser, fileUser, sizeof(currentUser)-1);
-            currentUser[sizeof(currentUser)-1] = '\0';
-            fclose(fp);
+        FILE *fp = fopen(CREDENTIALS_FILE, "r");
+        if (!fp) {
+            /* If credentials file missing, allow ADMIN fallback for testing */
+            strcpy(currentRole, "ADMIN");
+            strcpy(currentUser, "localadmin");
             return 1;
         }
+
+        int found = 0;
+        while (fscanf(fp, "%49s %49s %19s", fileUser, filePass, fileRole) == 3) {
+            if (strcmp(username, fileUser) == 0 && strcmp(password, filePass) == 0) {
+                strncpy(currentRole, fileRole, sizeof(currentRole)-1);
+                currentRole[sizeof(currentRole)-1] = '\0';
+                strncpy(currentUser, fileUser, sizeof(currentUser)-1);
+                currentUser[sizeof(currentUser)-1] = '\0';
+                fclose(fp);
+                printf("Login successful!\n");
+                return 1;
+            }
+        }
+        fclose(fp);
+
+        attempts--;
+        if (attempts > 0) {
+            printf("Invalid credentials. Try again.\n\n");
+        } else {
+            printf("Login failed. Maximum attempts exceeded.\n");
+            return 0;
+        }
     }
-    fclose(fp);
     return 0;
 }
 
@@ -109,11 +124,41 @@ void adminMenu(void) {
 }
 
 void staffMenu(void) {
-    printf("\n[STAFF MENU] (not implemented yet)\n");
+    int choice;
+    do {
+        printf("\n====== STAFF MENU ======\n");
+        printf("1. Add Student\n");
+        printf("2. Display All Records\n");
+        printf("3. Search Student\n");
+        printf("4. Logout\n");
+        choice = readInt("Enter choice: ");
+
+        switch (choice) {
+            case 1: addStudent();      break;
+            case 2: displayStudents(); break;
+            case 3: searchStudent();   break;
+            case 4: printf("Logging out...\n"); break;
+            default: printf("Invalid Choice!\n");
+        }
+    } while (choice != 4);
 }
 
 void guestMenu(void) {
-    printf("\n[GUEST MENU] (not implemented yet)\n");
+    int choice;
+    do {
+        printf("\n====== GUEST MENU ======\n");
+        printf("1. Display All Records\n");
+        printf("2. Search Student\n");
+        printf("3. Logout\n");
+        choice = readInt("Enter choice: ");
+
+        switch (choice) {
+            case 1: displayStudents(); break;
+            case 2: searchStudent();   break;
+            case 3: printf("Logging out...\n"); break;
+            default: printf("Invalid Choice!\n");
+        }
+    } while (choice != 3);
 }
 
 /* ---------- add student (multi-word name allowed, unique roll & name) ---------- */
