@@ -539,3 +539,4 @@ int nameExistsExceptRoll(const char *name, int roll) {
     fclose(fp);
     return 0;
 }
+// this code can be pushed into github by double clicking on push.bat file
